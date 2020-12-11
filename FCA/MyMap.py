@@ -6,6 +6,7 @@ import decimal
 import scipy.optimize as optimize
 from geopy.distance import great_circle
 import math
+import numpy as np
 
 
 ################################################################################
@@ -103,6 +104,10 @@ def read_events():
 # find all the cells met the provided thresholds and
 # return them. It uses a BFS like structure to move
 # deeper for cells
+# cell numbers for an square:
+# [1  2  3
+#  4  5  6
+#  7  8  9]
 def find_centers():
     print('Finding centers based on flexible cells algorithm ...')
     bfsq = queue.Queue()# FIFO queue for processing cells
@@ -112,11 +117,11 @@ def find_centers():
     if count < TF_THR:# if there is not enough events
         return queue.Queue()# return empty queue
     bfsq.put((cell, count))# put the (full area cell, count) into the queue
-    while bfsq:# do it til there is an item in the queue
+    while not bfsq.empty():# do it til there is an item in the queue
         popItem = bfsq.get()# get an item from queue
         popCell = popItem[CELL_IDX]# get the cell info
 
-        # if the cell met th size threshold
+        # if the cell meets the size threshold
         if (popCell[X_LEN] <= SIZE_THR) and (popCell[Y_LEN] <= SIZE_THR):
             bfsq.put(popItem)# put the removed item back
             return bfsq# return final result
@@ -124,24 +129,24 @@ def find_centers():
         if popCell[TYPE_IDX] == CELL_TYPE_1: #four corners, cells 1,3,7,9
             # move over nine different cells of size half of the original cell
             # move over horizontal cells
-            for i in [ZERO, popCell[X_LEN] / QUARTER, popCell[X_LEN] / HALF]:
+            for i in [ZERO, popCell[X_LEN] / FOUR, popCell[X_LEN] / TWO]:
                 # move over vertical cells
-                for j in [ZERO, popCell[Y_LEN] / QUARTER, popCell[Y_LEN] / HALF]:
+                for j in [ZERO, popCell[Y_LEN] / FOUR, popCell[Y_LEN] / TWO]:
                     type = CELL_TYPE_1
-                    if j == popCell[Y_LEN] / QUARTER:# middle vertical cells
+                    if j == popCell[Y_LEN] / FOUR:# middle vertical cells
                         type = CELL_TYPE_3
-                    if i == popCell[X_LEN] / QUARTER:# middle horizontal cells
+                    if i == popCell[X_LEN] / FOUR:# middle horizontal cells
                         type = CELL_TYPE_2
                         # middle vertical/horizontal cells
-                        if j == popCell[Y_LEN] / QUARTER:
+                        if j == popCell[Y_LEN] / FOUR:
                             type = CELL_TYPE_4
                     # make a cell of half size
                     cell = (popCell[X_STR_IDX] + i,
-                            popCell[X_STR_IDX] + i + popCell[X_LEN] / HALF,
-                            popCell[X_LEN] / HALF,
+                            popCell[X_STR_IDX] + i + popCell[X_LEN] / TWO,
+                            popCell[X_LEN] / TWO,
                             popCell[Y_STR_IDX] + j,
-                            popCell[Y_STR_IDX] + j + popCell[Y_LEN] / HALF,
-                            popCell[Y_LEN] / HALF,
+                            popCell[Y_STR_IDX] + j + popCell[Y_LEN] / TWO,
+                            popCell[Y_LEN] / TWO,
                             type)
                     # count number of events inside this cell
                     count, min_max = count_events_minmax(cell, events)
@@ -152,16 +157,16 @@ def find_centers():
         elif popCell[TYPE_IDX] == CELL_TYPE_2: #two cells 2,8
             # for type_2 cells, just need to move over middle horizontal
             # cells, others are covered already
-            i = popCell[X_LEN] / QUARTER
+            i = popCell[X_LEN] / FOUR
             # move over vertical cells
-            for j in [ZERO, popCell[Y_LEN] / QUARTER, popCell[Y_LEN] / HALF]:
+            for j in [ZERO, popCell[Y_LEN] / FOUR, popCell[Y_LEN] / TWO]:
                 # make a cell of half size
                 cell = (popCell[X_STR_IDX] + i,
-                        popCell[X_STR_IDX] + i + popCell[X_LEN] / HALF,
-                        popCell[X_LEN] / HALF,
+                        popCell[X_STR_IDX] + i + popCell[X_LEN] / TWO,
+                        popCell[X_LEN] / TWO,
                         popCell[Y_STR_IDX] + j,
-                        popCell[Y_STR_IDX] + j + popCell[Y_LEN] / HALF,
-                        popCell[Y_LEN] / HALF,
+                        popCell[Y_STR_IDX] + j + popCell[Y_LEN] / TWO,
+                        popCell[Y_LEN] / TWO,
                         CELL_TYPE_2)
                 # count number of events inside this cell
                 count, min_max = count_events_minmax(cell, events)
@@ -172,16 +177,16 @@ def find_centers():
         elif popCell[TYPE_IDX] == CELL_TYPE_3: #two cells 4,6
             # for type_3 cells, just need to move over middle vertical
             # cells, others are covered already
-            j = popCell[Y_LEN] / QUARTER
+            j = popCell[Y_LEN] / FOUR
             # move over horizontal cells
-            for i in [ZERO, popCell[X_LEN] / QUARTER, popCell[X_LEN] / HALF]:
+            for i in [ZERO, popCell[X_LEN] / FOUR, popCell[X_LEN] / TWO]:
                 # make a cell of half size
                 cell = (popCell[X_STR_IDX] + i,
-                        popCell[X_STR_IDX] + i + popCell[X_LEN] / HALF,
-                        popCell[X_LEN] / HALF,
+                        popCell[X_STR_IDX] + i + popCell[X_LEN] / TWO,
+                        popCell[X_LEN] / TWO,
                         popCell[Y_STR_IDX] + j,
-                        popCell[Y_STR_IDX] + j + popCell[Y_LEN] / HALF,
-                        popCell[Y_LEN] / HALF,
+                        popCell[Y_STR_IDX] + j + popCell[Y_LEN] / TWO,
+                        popCell[Y_LEN] / TWO,
                         CELL_TYPE_3)
                 # count number of events inside this cell
                 count, min_max = count_events_minmax(cell, events)
@@ -192,21 +197,26 @@ def find_centers():
         elif popCell[TYPE_IDX] == CELL_TYPE_4: #one cell 5
             # for type_4 cells, just need to move over the middle
             # cell, others are covered already
-            i = popCell[X_LEN] / QUARTER
-            j = popCell[Y_LEN] / QUARTER
+            i = popCell[X_LEN] / FOUR
+            j = popCell[Y_LEN] / FOUR
             # make a cell of half size
             cell = (popCell[X_STR_IDX] + i,
-                    popCell[X_STR_IDX] + i + popCell[X_LEN] / HALF,
-                    popCell[X_LEN] / HALF,
+                    popCell[X_STR_IDX] + i + popCell[X_LEN] / TWO,
+                    popCell[X_LEN] / TWO,
                     popCell[Y_STR_IDX] + j,
-                    popCell[Y_STR_IDX] + j + popCell[Y_LEN] / HALF,
-                    popCell[Y_LEN] / HALF,
+                    popCell[Y_STR_IDX] + j + popCell[Y_LEN] / TWO,
+                    popCell[Y_LEN] / TWO,
                     CELL_TYPE_4)
             # count number of events inside this cell
             count, min_max = count_events_minmax(cell, events)
             # if count meets the threshold, add the cell to queue
             if count >= TF_THR:
                 bfsq.put((cell, count, min_max))
+
+        # when there is no new cell, the only cell would be the last cell
+        if bfsq.empty():
+            bfsq.put(popItem)
+            return bfsq
     return bfsq
 
 # checks confliction between two cells
@@ -292,8 +302,8 @@ def find_optimum_params(cell_count, related_events):
     center_cell = cell_count[CELL_IDX]
     center_count = cell_count[COUNT_IDX]
 
-    cell_center_x = center_cell[X_STR_IDX] + center_cell[X_LEN] / 2
-    cell_center_y = center_cell[Y_STR_IDX] + center_cell[Y_LEN] / 2
+    cell_center_x = center_cell[X_STR_IDX] + center_cell[X_LEN] / TWO
+    cell_center_y = center_cell[Y_STR_IDX] + center_cell[Y_LEN] / TWO
 
     # first we should divide map into cells of size result cell
     # (which is the input of the method)
@@ -335,27 +345,49 @@ def find_optimum_params(cell_count, related_events):
 
     # move over all the cells and count events for each one
     map = []
+    index = ZERO
     for i in i_indices:
         for j in j_indices:
             new_cell = (i[MAP_STR], i[MAP_END], i[MAP_END] - i[MAP_STR],
                         j[MAP_STR], j[MAP_END], j[MAP_END] - j[MAP_STR])
             new_count = count_events(new_cell, related_events)
-            new_center_x = (i[MAP_STR] + i[MAP_END]) / HALF
-            new_center_y = (j[MAP_STR] + j[MAP_END]) / HALF
+            new_center_x = (i[MAP_STR] + i[MAP_END]) / TWO
+            new_center_y = (j[MAP_STR] + j[MAP_END]) / TWO
             new_dist = distance(new_center_y, new_center_x, cell_center_y, cell_center_x)
-            map.append(('', new_count, new_dist))
+            map.append((str(index), new_count, new_dist))
+            index += ONE
 
     # optimizing function which will be executed repeatedly to optimize x
     # x is alpha
     def f(x):
         result = ZERO
+        logs = []
+        one_minus_logs = []
         # summation over all the cells
         for mapcell in map:
+            cdx = center_count * (mapcell[MAPCELL_DIST_IDX] ** (-x))
             # if there is at least one relevant event within the cell
             if mapcell[MAPCELL_COUNT_IDX] != ZERO:
-                result += math.log(center_count * (mapcell[MAPCELL_DIST_IDX] ** (-x)))
+                logs.append(cdx)
+                #result += math.log(cdx)
             else:
-                result += math.log(ONE - center_count * (mapcell[MAPCELL_DIST_IDX] ** (-x)))
+                one_minus_logs.append(cdx)
+                #result += math.log(ONE - cdx)
+
+        # calculate sum for later normalization
+        sum_all = np.sum(logs) + np.sum(one_minus_logs)
+
+        # normalizing
+        logs = np.log(np.divide(logs, sum_all))
+        one_minus_logs = np.log(ONE - np.divide(one_minus_logs, sum_all))
+
+        # calculating the result
+        result += np.sum(logs)
+        result += np.sum(one_minus_logs)
+
+        #del logs
+        #del one_minus_logs
+
         return (-ONE) * result
 
     # optimize alpha
@@ -372,6 +404,7 @@ def find_optimum_params(cell_count, related_events):
 # optimize parameters by first clustring events for each center
 # and then optimizing the parameters based on those events
 def optimize_params_by_clustring_events_repeatedly(result):
+    print('Optimize parameters repeatedly by clustring events for ' + str(len(result)) + ' center(s)')
     # for storing which events are related to each result
     result_events = [[ONE] * len(events) for _ in range(len(results))]
     # for storing parameters C and alpha
@@ -382,16 +415,21 @@ def optimize_params_by_clustring_events_repeatedly(result):
     # loop maximum of MAX_OPTIMIZATION_LOOP rounds
     loop = ZERO
     while loop < MAX_OPTIMIZATION_LOOP:
+        print("Loop " + str(loop+1) + ' of total ' + str(MAX_OPTIMIZATION_LOOP) + ' loop(s)')
         # do it for each single center
+        result_index = ONE
         for ri in range(ZERO, len(results)):
             # get list of events that current result has the maximum probability for them
+            print('Find related events for center ' + str(result_index))
             related_events = []
             for ei in range(ZERO, len(events)):
                 if result_events[ri][ei] == ONE:
                     related_events.append(events[ei])
 
+            print('Optimizing center ' + str(result_index))
             # find the optimum parameters for related events
             result_params[ri] = find_optimum_params(results[ri], related_events)
+            result_index += ONE
 
         # check if we have any change in parameters of any center
         changed = False
@@ -419,8 +457,8 @@ def optimize_params_by_clustring_events_repeatedly(result):
                 C = result_params[ri][PARAM_CENTER_IDX]
                 alpha = result_params[ri][PARAM_ALPHA_IDX]
                 cell = results[ri][CELL_IDX]
-                center_x = (cell[X_STR_IDX] + cell[X_END_IDX]) / HALF
-                center_y = (cell[Y_STR_IDX] + cell[Y_END_IDX]) / HALF
+                center_x = (cell[X_STR_IDX] + cell[X_END_IDX]) / TWO
+                center_y = (cell[Y_STR_IDX] + cell[Y_END_IDX]) / TWO
                 dist = distance(events[ei][LAT_IDX], events[ei][LON_IDX], center_y, center_x)
 
                 # calculate the prob
@@ -443,17 +481,20 @@ def optimize_params_by_clustring_events_repeatedly(result):
 ################################################################################
 ################################# PARAMETERS ###################################
 ################################################################################
-TF_THR = 6 # threshold for tweet frequency
+TF_THR = 30 # threshold for tweet frequency
 SIZE_THR = 0.8 # threshold for area size of interest
 COMPRESS_BOUNDARIES_ACTIVE = False
 SINGLE_CENTERED = True
 MAX_OPTIMIZATION_LOOP = 100
-events_cvs_file = 'map.csv'
+events_cvs_file = 'COVID_coords_1000.csv'
+# events file should be a csv of lat,lon
 
 
 ################################################################################
 ################################## CONSTANTS ###################################
 ################################################################################
+# x means lon
+# y means lat
 x0 = 0 # top left corner considered as (0,0) coordinate
 y0 = 0 # top left corner considered as (0,0) coordinate
 dx0 = 360 # from -180 to 180
@@ -492,12 +533,12 @@ KEY_NAME_2 = 'key2'
 KEY_NAME_3 = 'key3'
 VAL_NAME = 'val'
 
-QUARTER = 4
-HALF = 2
-ZERO = 0
-ONE = 1
-NINETY = 90
 EIGHTEEN_HUNDRED = 180
+NINETY = 90
+FOUR = 4
+TWO = 2
+ONE = 1
+ZERO = 0
 ROUND_DIGITS = 5
 AREA_OFFSET = 0.001
 
@@ -516,7 +557,9 @@ PARAM_ALPHA_IDX = 1
 ################################################################################
 print('Tweet frequency threshold = ' + str(TF_THR))
 print('Area size of interest threshold = ' + str(SIZE_THR))
-print('Compress boundaries active status = ' + str(COMPRESS_BOUNDARIES_ACTIVE))
+print('Compress boundaries? = ' + str(COMPRESS_BOUNDARIES_ACTIVE))
+print('Single center (True) or multiple center(False)? = ' + str(SINGLE_CENTERED))
+print('Maximum number of loops in optimization = ' + str(MAX_OPTIMIZATION_LOOP))
 print('Input event file name = ' + str(events_cvs_file))
 print('')
 
