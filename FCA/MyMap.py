@@ -26,9 +26,14 @@ def our_to_real_space_result(our_result):
     our_cell = our_result[CELL_IDX]
     top_left = our_to_real_space_point((our_cell[Y_STR_IDX], our_cell[X_STR_IDX]))
     bot_right = our_to_real_space_point((our_cell[Y_END_IDX], our_cell[X_END_IDX]))
-    return ((top_left[LON_IDX], bot_right[LON_IDX],our_cell[X_LEN],
-            top_left[LAT_IDX], bot_right[LAT_IDX], our_cell[Y_LEN],
-            our_cell[TYPE_IDX]), our_result[COUNT_IDX])
+    return ((round(top_left[LON_IDX], ROUND_DIGITS),
+             round(bot_right[LON_IDX], ROUND_DIGITS),
+             round(our_cell[X_LEN], ROUND_DIGITS),
+             round(top_left[LAT_IDX], ROUND_DIGITS),
+             round(bot_right[LAT_IDX], ROUND_DIGITS),
+             round(our_cell[Y_LEN], ROUND_DIGITS),
+             our_cell[TYPE_IDX]),
+            our_result[COUNT_IDX])
 
 # calculate distance of two points in kilometers
 def distance(lat1,lon1,lat2,lon2):
@@ -43,7 +48,10 @@ def start():
 #calculate time length and print it
 def stop(location):
     global start_time
-    print(location + ': done in ' + str(time.time() - start_time.pop()) + ' seconds')
+    if location == None:
+        start_time.pop()
+    else:
+        print(location + ': done in ' + str(time.time() - start_time.pop()) + ' seconds')
 
 #calculate time length and print it, then reset start_time
 def stopAndStart(location):
@@ -61,12 +69,75 @@ def is_event_in_cell(event, cell):
 
 # count number of events falls inside the input cell
 def count_events(cell, related_events):
-    #TODO: make it more efficient
+    events = []
     res = ZERO
     for event in related_events: # loop over all the events
         if is_event_in_cell(event, cell):
             res += ONE
-    return res
+            events.append(event)
+    return res, events
+
+# compress cell ne looking over all possible squares with
+# size equal to 1.2 * SIZE_THR (0.1 margin in each side)
+def compressor(cell_count_events):
+    cell = cell_count_events[CELL_IDX]
+    events = cell_count_events[EVENTS_IDX]
+    # to divide cell into smaller cells of 1/10 of cell size
+    small_cell_size = round(SIZE_THR / TEN, ROUND_DIGITS)
+    # number of events in each small cell => 2D array
+    small_counts = []
+
+    i = cell[X_STR_IDX]
+    while i < cell[X_END_IDX]:
+        i_end = i + small_cell_size
+        if (i + small_cell_size > cell[X_END_IDX]):
+            i_end = cell[X_END_IDX]
+
+        # each array is a one row of the total small cells' event counts
+        array = []
+        j = cell[Y_STR_IDX]
+        while j < cell[Y_END_IDX]:
+            j_end = j + small_cell_size
+            if (j+small_cell_size > cell[Y_END_IDX]):
+                j_end = cell[Y_END_IDX]
+
+            small_cell = (i, i_end, small_cell_size, j, j_end, small_cell_size)
+            small_count,_ = count_events(small_cell, events)
+            array.append(small_count)
+            j += small_cell_size
+        small_counts.append(array)
+        i += small_cell_size
+
+    # for storing maximum possible compressed cell of size 1.2 * SIZE_THR
+    max_i = ZERO
+    max_j = ZERO
+    max_sum = ZERO
+    # by i and j we find the top-left corner of cell,
+    # by k and l we loop through small cells
+    i = ZERO
+    while i <= len(small_counts[ZERO]) - TWELWE:
+        j = ZERO
+        while j <= len(small_counts[ZERO]) - TWELWE:
+            sum = ZERO
+            for k in range(TWELWE):
+                for l in range(TWELWE):
+                    sum += small_counts[i + k][j + l]
+            if sum > max_sum:
+                max_sum = sum
+                max_i = i
+                max_j = j
+            j += ONE
+        i += ONE
+    if max_sum >= TF_THR:
+        max_cell_count = ((cell[X_STR_IDX] + max_i * small_cell_size,
+                           cell[X_STR_IDX] + (max_i + TWELWE) * small_cell_size,
+                           TWELWE * small_cell_size,
+                           cell[Y_STR_IDX] + max_j * small_cell_size,
+                           cell[Y_STR_IDX] + (max_j + TWELWE) * small_cell_size,
+                           TWELWE * small_cell_size,
+                           cell[TYPE_IDX]), max_sum)
+        return max_cell_count
+    return None
 
 # read all the events from the input csv file and
 # convert it to coordinate where (0,0) is the top
@@ -106,7 +177,8 @@ def find_centers():
 
         # if the cell meets the size threshold,
         # we can conclude that all the others are ok
-        if (popCell[X_LEN] <= SIZE_THR) and (popCell[Y_LEN] <= SIZE_THR):
+        if (popCell[X_LEN] >= TWO * SIZE_THR) and (popCell[Y_LEN] >= TWO * SIZE_THR) and \
+           (popCell[X_LEN]/TWO <= TWO * SIZE_THR) and (popCell[Y_LEN]/TWO <= TWO * SIZE_THR):
             bfsq.put(popItem)# put the removed item back
             return bfsq# return final result
 
@@ -133,10 +205,10 @@ def find_centers():
                             popCell[Y_LEN] / TWO,
                             type)
                     # count number of events inside this cell
-                    count = count_events(cell, events)
+                    count, cell_events = count_events(cell, events)
                     # if count meets the threshold, add the cell to queue
                     if count >= TF_THR:
-                        bfsq.put((cell, count))
+                        bfsq.put((cell, count, cell_events))
 
         elif popCell[TYPE_IDX] == CELL_TYPE_2: #two cells 2,8
             # for type_2 cells, just need to move over middle horizontal
@@ -153,10 +225,10 @@ def find_centers():
                         popCell[Y_LEN] / TWO,
                         CELL_TYPE_2)
                 # count number of events inside this cell
-                count = count_events(cell, events)
+                count, cell_events = count_events(cell, events)
                 # if count meets the threshold, add the cell to queue
                 if count >= TF_THR:
-                    bfsq.put((cell, count))
+                    bfsq.put((cell, count, cell_events))
 
         elif popCell[TYPE_IDX] == CELL_TYPE_3: #two cells 4,6
             # for type_3 cells, just need to move over middle vertical
@@ -173,10 +245,10 @@ def find_centers():
                         popCell[Y_LEN] / TWO,
                         CELL_TYPE_3)
                 # count number of events inside this cell
-                count = count_events(cell, events)
+                count, cell_events = count_events(cell, events)
                 # if count meets the threshold, add the cell to queue
                 if count >= TF_THR:
-                    bfsq.put((cell, count))
+                    bfsq.put((cell, count, cell_events))
 
         elif popCell[TYPE_IDX] == CELL_TYPE_4: #one cell 5
             # for type_4 cells, just need to move over the middle
@@ -192,10 +264,10 @@ def find_centers():
                     popCell[Y_LEN] / TWO,
                     CELL_TYPE_4)
             # count number of events inside this cell
-            count = count_events(cell, events)
+            count, cell_events = count_events(cell, events)
             # if count meets the threshold, add the cell to queue
             if count >= TF_THR:
-                bfsq.put((cell, count))
+                bfsq.put((cell, count, cell_events))
 
         # when there is no new cell, the only cell would be the last cell
         #if bfsq.empty():
@@ -226,15 +298,16 @@ def has_conflict(cell1, cell2):
     return False
 
 # prune the results by removing conflict cells from find_centers output
-def remove_conflicts(temp_result):
+def remove_conflicts():
+    global founded_centers
     print('Keep the higher_count/lower_x/lower_y cells and remove conflicting cells to them ...')
     # first try to sort current results by:
     # 1) count
     # 2) x of top-left corner
     # 3) y of top-left corner
     sort_res = []
-    while not temp_result.empty():
-        cell_count = temp_result.get()
+    while not founded_centers.empty():
+        cell_count = founded_centers.get()
         # making keys based on mentioned order above, later
         # sort will be done using this generated keys
         sort_res.append({KEY_NAME_1: cell_count[COUNT_IDX],
@@ -370,7 +443,7 @@ def find_optimum_params(cell_count, related_events):
         one_minus_logs = []
         # summation over all the cells
         for cell_key in result_celldists.keys():
-            if result_celldists[cell_key] == 0:
+            if result_celldists[cell_key] == ZERO:
                 continue
             cdx = center_count * (result_celldists[cell_key] ** (-x))
             # if there is at least one relevant event within the cell
@@ -385,8 +458,16 @@ def find_optimum_params(cell_count, related_events):
         sum_all = np.sum(logs) + np.sum(one_minus_logs)
 
         # normalizing
-        logs = np.log(np.divide(logs, sum_all))
-        one_minus_logs = np.log(ONE - np.divide(one_minus_logs, sum_all))
+        logs = np.divide(logs, sum_all)
+        for ii in range(len(logs)):
+            if logs[ii] == ZERO:
+                logs[ii] = TEN**(-TEN)
+        logs = np.log(logs)
+        one_minus_logs = ONE - np.divide(one_minus_logs, sum_all)
+        for ii in range(len(one_minus_logs)):
+            if one_minus_logs[ii] == ZERO:
+                one_minus_logs[ii] = TEN**(-TEN)
+        one_minus_logs = np.log(one_minus_logs)
 
         # calculating the result
         result += np.sum(logs)
@@ -409,7 +490,6 @@ def find_optimum_params(cell_count, related_events):
 def optimize_params_by_clustring_events_repeatedly():
     global results
     global events
-    start()
     print('Optimize parameters repeatedly by clustring events for ' + str(len(results)) + ' center(s)')
     # for storing which events are related to each result
     result_events = [[ONE] * len(events) for _ in range(len(results))]
@@ -421,17 +501,19 @@ def optimize_params_by_clustring_events_repeatedly():
     # loop maximum of MAX_OPTIMIZATION_LOOP rounds
     loop = ZERO
     while loop < MAX_OPTIMIZATION_LOOP:
+        start()
         print('========================================')
         print("Loop " + str(loop+1) + ' of total ' + str(MAX_OPTIMIZATION_LOOP) + ' loop(s)')
         # do it for each single center
         result_index = ONE
         for ri in range(ZERO, len(results)):
+            start()
             # get list of events that current result has the maximum probability for them
             related_events = []
             for ei in range(ZERO, len(events)):
                 if result_events[ri][ei] == ONE:
                     related_events.append(events[ei])
-            stopAndStart('Group up related events for center ' + str(result_index))
+            stop('Group up related events for center ' + str(result_index))
 
             print('Optimizing center ' + str(result_index))
             # find the optimum parameters for related events
@@ -482,23 +564,11 @@ def optimize_params_by_clustring_events_repeatedly():
             # set the event for related center to one
             result_events[max_index][ei] = ONE
 
-        stopAndStart('Updating event probabilities and clustering them for next round')
+        stop('Updating event probabilities and clustering them for next round')
         # increment loops
         loop += ONE
 
     return result_params
-
-################################################################################
-################################# PARAMETERS ###################################
-################################################################################
-TF_THR = 300 # threshold for tweet frequency
-SIZE_THR = 2 # threshold for area size of interest
-SINGLE_CENTERED = False
-MAX_OPTIMIZATION_LOOP = 50
-#events_cvs_file = 'map.csv'
-events_cvs_file = 'COVID_coords_1000.csv'
-# events file should be a csv of lat,lon
-
 
 ################################################################################
 ################################## CONSTANTS ###################################
@@ -521,7 +591,7 @@ TYPE_IDX = 6
 
 CELL_IDX = 0
 COUNT_IDX = 1
-MINMAX_IDX = 2
+EVENTS_IDX = 2
 
 CELL_TYPE_1 = 1
 CELL_TYPE_2 = 2
@@ -545,6 +615,8 @@ VAL_NAME = 'val'
 
 EIGHTEEN_HUNDRED = 180
 NINETY = 90
+TWELWE = 12
+TEN = 10
 FOUR = 4
 TWO = 2
 ONE = 1
@@ -563,6 +635,18 @@ PARAM_CENTER_IDX = 0
 PARAM_ALPHA_IDX = 1
 
 ################################################################################
+################################# PARAMETERS ###################################
+################################################################################
+TF_THR = 210 # threshold for tweet frequency
+SIZE_THR = 2 # threshold for area size of interest
+SINGLE_CENTERED = False
+MAX_OPTIMIZATION_LOOP = 20
+#events_cvs_file = 'map.csv'
+events_cvs_file = 'map.csv'
+# events file should be a csv of lat,lon
+
+
+################################################################################
 ################################### RUN ########################################
 ################################################################################
 print('Tweet frequency threshold = ' + str(TF_THR))
@@ -574,19 +658,26 @@ print('')
 
 start_time = []
 events = read_events()
-founded_centers = find_centers()
+founded_centers = queue.Queue()
 results = []
 results_celldists = {}
 results_eventcells = {}
 
 if not SINGLE_CENTERED:
-    results = remove_conflicts(founded_centers)
+    founded_centers = find_centers()
 else:
-    first_center = queue.Queue()
-    first_center.put(founded_centers.get())
-    results = remove_conflicts(first_center)
+    temp_centers = find_centers()
+    if not temp_centers.empty():
+        founded_centers.put(temp_centers.get())
 
-result_params = optimize_params_by_clustring_events_repeatedly()
+after_conflict = remove_conflicts()
+
+for res in after_conflict:
+    result = compressor(res)
+    if result != None:
+        results.append(result)
+
+results_params = optimize_params_by_clustring_events_repeatedly()
 
 # pritn some headlines
 print('')
@@ -596,4 +687,4 @@ print('')
 # print all centers and parameters
 for ri in range(ZERO, len(results)):
     print('Center: ' + str(our_to_real_space_result(results[ri])))
-    print('(C,alpha): ' + str(result_params[ri]))
+    print('(C,alpha): ' + str(results_params[ri]))
