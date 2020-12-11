@@ -77,7 +77,7 @@ def count_events(cell, related_events):
             events.append(event)
     return res, events
 
-# compress cell ne looking over all possible squares with
+# compress cell by looking over all possible squares with
 # size equal to 1.2 * SIZE_THR (0.1 margin in each side)
 def compressor(cell_count_events):
     cell = cell_count_events[CELL_IDX]
@@ -90,7 +90,7 @@ def compressor(cell_count_events):
     i = cell[X_STR_IDX]
     while i < cell[X_END_IDX]:
         i_end = i + small_cell_size
-        if (i + small_cell_size > cell[X_END_IDX]):
+        if ((i + small_cell_size) > cell[X_END_IDX]):
             i_end = cell[X_END_IDX]
 
         # each array is a one row of the total small cells' event counts
@@ -98,7 +98,7 @@ def compressor(cell_count_events):
         j = cell[Y_STR_IDX]
         while j < cell[Y_END_IDX]:
             j_end = j + small_cell_size
-            if (j+small_cell_size > cell[Y_END_IDX]):
+            if ((j + small_cell_size) > cell[Y_END_IDX]):
                 j_end = cell[Y_END_IDX]
 
             small_cell = (i, i_end, small_cell_size, j, j_end, small_cell_size)
@@ -114,13 +114,14 @@ def compressor(cell_count_events):
     max_sum = ZERO
     # by i and j we find the top-left corner of cell,
     # by k and l we loop through small cells
+    num_of_cells = int(SIZE_THR / small_cell_size + TWO)
     i = ZERO
-    while i <= len(small_counts[ZERO]) - TWELWE:
+    while i <= len(small_counts[ZERO]) - num_of_cells:
         j = ZERO
-        while j <= len(small_counts[ZERO]) - TWELWE:
+        while j <= len(small_counts[ZERO]) - num_of_cells:
             sum = ZERO
-            for k in range(TWELWE):
-                for l in range(TWELWE):
+            for k in range(num_of_cells):
+                for l in range(num_of_cells):
                     sum += small_counts[i + k][j + l]
             if sum > max_sum:
                 max_sum = sum
@@ -130,10 +131,10 @@ def compressor(cell_count_events):
         i += ONE
     if max_sum >= TF_THR:
         max_cell_count = ((cell[X_STR_IDX] + max_i * small_cell_size,
-                           cell[X_STR_IDX] + (max_i + TWELWE) * small_cell_size,
+                           cell[X_STR_IDX] + (max_i + num_of_cells) * small_cell_size,
                            TWELWE * small_cell_size,
                            cell[Y_STR_IDX] + max_j * small_cell_size,
-                           cell[Y_STR_IDX] + (max_j + TWELWE) * small_cell_size,
+                           cell[Y_STR_IDX] + (max_j + num_of_cells) * small_cell_size,
                            TWELWE * small_cell_size,
                            cell[TYPE_IDX]), max_sum)
         return max_cell_count
@@ -178,7 +179,7 @@ def find_centers():
         # if the cell meets the size threshold,
         # we can conclude that all the others are ok
         if (popCell[X_LEN] >= TWO * SIZE_THR) and (popCell[Y_LEN] >= TWO * SIZE_THR) and \
-           (popCell[X_LEN]/TWO <= TWO * SIZE_THR) and (popCell[Y_LEN]/TWO <= TWO * SIZE_THR):
+           (popCell[X_LEN] <= FOUR * SIZE_THR) and (popCell[Y_LEN] <= FOUR * SIZE_THR):
             bfsq.put(popItem)# put the removed item back
             return bfsq# return final result
 
@@ -275,65 +276,25 @@ def find_centers():
         #    return bfsq
     return bfsq
 
-# checks confliction between two cells
-def has_conflict(cell1, cell2):
-    if cell1[X_STR_IDX] <= cell2[X_STR_IDX]:
-        if cell1[X_END_IDX] <= cell2[X_STR_IDX]:
-            return False
-        if cell1[Y_STR_IDX] >= cell2[Y_STR_IDX] and \
-                cell1[Y_STR_IDX] <= cell2[Y_END_IDX]:
-            return True
-        if cell2[Y_STR_IDX] >= cell1[Y_STR_IDX] and \
-                cell2[Y_STR_IDX] <= cell1[Y_END_IDX]:
-            return True
-    else:
-        if cell2[X_END_IDX] <= cell1[X_STR_IDX]:
-            return False
-        if cell1[Y_STR_IDX] >= cell2[Y_STR_IDX] and \
-                cell1[Y_STR_IDX] <= cell2[Y_END_IDX]:
-            return True
-        if cell2[Y_STR_IDX] >= cell1[Y_STR_IDX] and \
-                cell2[Y_STR_IDX] <= cell1[Y_END_IDX]:
-            return True
-    return False
-
 # prune the results by removing conflict cells from find_centers output
-def remove_conflicts():
-    global founded_centers
-    print('Keep the higher_count/lower_x/lower_y cells and remove conflicting cells to them ...')
-    # first try to sort current results by:
-    # 1) count
-    # 2) x of top-left corner
-    # 3) y of top-left corner
-    sort_res = []
-    while not founded_centers.empty():
-        cell_count = founded_centers.get()
-        # making keys based on mentioned order above, later
-        # sort will be done using this generated keys
-        sort_res.append({KEY_NAME_1: cell_count[COUNT_IDX],
-                         KEY_NAME_2: cell_count[CELL_IDX][X_STR_IDX],
-                         KEY_NAME_3: cell_count[CELL_IDX][Y_STR_IDX],
-                         VAL_NAME: cell_count})
-
-    # sort based on keys:
-    #  1) in reverse order of counts so that highest counts comes first
-    #  2) in direct order of top-left x so that the lowest x's comes first
-    #  3) in direct order of top-left y so that the lowest y's comes first
-    sort_res = sorted(sorted(sorted(sort_res,
-                                    key=lambda x: x[KEY_NAME_3]),
-                             key=lambda x: x[KEY_NAME_2]),
-                      key=lambda x: x[KEY_NAME_1], reverse=True)
-
-    # remove conflicts
+def remove_duplicates(results):
+    print('Remove duplicate centers ...')
     pruned_res = []
-    for item in sort_res:
-        conflict = False
-        for i in pruned_res:
-            if has_conflict(item[VAL_NAME][CELL_IDX], i[CELL_IDX]):
-                conflict = True
+    for result in results:
+        duplicate = False
+        for res in pruned_res:
+            if abs(res[CELL_IDX][X_STR_IDX] - result[CELL_IDX][X_STR_IDX]) < (SIZE_THR) \
+                    and abs(res[CELL_IDX][X_END_IDX] - result[CELL_IDX][X_END_IDX]) < (SIZE_THR) \
+                    and abs(res[CELL_IDX][Y_STR_IDX] - result[CELL_IDX][Y_STR_IDX]) < (SIZE_THR) \
+                    and abs(res[CELL_IDX][Y_END_IDX] - result[CELL_IDX][Y_END_IDX]) < (SIZE_THR):
+                duplicate = True
                 break
-        if not conflict:
-            pruned_res.append(item[VAL_NAME])
+        if not duplicate:
+            pruned_res.append(result)
+        else:
+            if res[COUNT_IDX] < result[COUNT_IDX]:
+                pruned_res.remove(res)
+                pruned_res.append(result)
     return pruned_res
 
 # find optimum values for alpha based on spatial variation paper
@@ -637,11 +598,10 @@ PARAM_ALPHA_IDX = 1
 ################################################################################
 ################################# PARAMETERS ###################################
 ################################################################################
-TF_THR = 210 # threshold for tweet frequency
-SIZE_THR = 2 # threshold for area size of interest
+TF_THR = 430 # threshold for tweet frequency
+SIZE_THR = 3 # threshold for area size of interest
 SINGLE_CENTERED = False
 MAX_OPTIMIZATION_LOOP = 20
-#events_cvs_file = 'map.csv'
 events_cvs_file = 'map.csv'
 # events file should be a csv of lat,lon
 
@@ -670,12 +630,13 @@ else:
     if not temp_centers.empty():
         founded_centers.put(temp_centers.get())
 
-after_conflict = remove_conflicts()
-
-for res in after_conflict:
+while not founded_centers.empty():
+    res = founded_centers.get()
     result = compressor(res)
     if result != None:
         results.append(result)
+
+results = remove_duplicates(results)
 
 results_params = optimize_params_by_clustring_events_repeatedly()
 
