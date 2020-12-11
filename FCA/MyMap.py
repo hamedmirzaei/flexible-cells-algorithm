@@ -446,8 +446,9 @@ def optimize_params_by_clustring_events_repeatedly(result):
 TF_THR = 6 # threshold for tweet frequency
 SIZE_THR = 0.8 # threshold for area size of interest
 COMPRESS_BOUNDARIES_ACTIVE = False
+SINGLE_CENTERED = True
 MAX_OPTIMIZATION_LOOP = 100
-events_cvs_file = 'CMPUT_692\map.csv'
+events_cvs_file = 'map.csv'
 
 
 ################################################################################
@@ -520,7 +521,12 @@ print('Input event file name = ' + str(events_cvs_file))
 print('')
 
 events = read_events()
-results = remove_conflicts(compress_boundaries(find_centers()))
+if not SINGLE_CENTERED:
+    results = remove_conflicts(compress_boundaries(find_centers()))
+else:
+    first_center = queue.Queue()
+    first_center.put(find_centers().get())
+    results = remove_conflicts(compress_boundaries(first_center))
 result_params = optimize_params_by_clustring_events_repeatedly(results)
 
 # pritn some headlines
