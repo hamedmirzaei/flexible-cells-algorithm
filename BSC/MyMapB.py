@@ -215,7 +215,7 @@ KEY_DELIMITER = ','
 ################################# PARAMETERS ###################################
 ################################################################################
 MAX_OPTIMIZATION_LOOP = 20
-events_cvs_file = 'map.csv'
+events_cvs_file = 'map_b.csv'
 # events file should be a csv of lat,lon
 
 
