@@ -28,6 +28,11 @@ def our_to_real_space_result(our_result):
             top_left[LAT_IDX], bot_right[LAT_IDX], our_cell[Y_LEN],
             our_cell[TYPE_IDX]), our_result[COUNT_IDX])
 
+# calculate distance of two points in kilometers
+def distance(lat1,lon1,lat2,lon2):
+    # first move the points to original space
+    return great_circle(our_to_real_space_point((lat1, lon1)), our_to_real_space_point((lat2, lon2))).kilometers
+
 # count number of events falls inside the input cell + min/max boundaries
 def count_events_minmax(cell, related_events):
     #TODO: make it more efficient number of events
@@ -282,11 +287,6 @@ def compress_boundaries(temp_result):
             bounded.put((cell_count_minmax[CELL_IDX], cell_count_minmax[COUNT_IDX]))
     return bounded
 
-# calculate distance of two points in kilometers
-def distance(lat1,lon1,lat2,lon2):
-    # first move the points to original space
-    return great_circle(our_to_real_space_point((lat1, lon1)), our_to_real_space_point((lat2, lon2))).kilometers
-
 # find optimum values for alpha based on spatial variation paper
 def find_optimum_params(cell_count, related_events):
     center_cell = cell_count[CELL_IDX]
@@ -344,23 +344,101 @@ def find_optimum_params(cell_count, related_events):
             new_center_y = (j[MAP_STR] + j[MAP_END]) / HALF
             new_dist = distance(new_center_y, new_center_x, cell_center_y, cell_center_x)
             map.append(('', new_count, new_dist))
+
+    # optimizing function which will be executed repeatedly to optimize x
+    # x is alpha
     def f(x):
-        result = 0
-        cnt = 0
+        result = ZERO
+        # summation over all the cells
         for mapcell in map:
-            if mapcell[MAPCELL_COUNT_IDX] != 0:
-                cnt += 1
+            # if there is at least one relevant event within the cell
+            if mapcell[MAPCELL_COUNT_IDX] != ZERO:
                 result += math.log(center_count * (mapcell[MAPCELL_DIST_IDX] ** (-x)))
             else:
-                result += math.log(1 - center_count * (mapcell[MAPCELL_DIST_IDX] ** (-x)))
-        return (-1) * result
+                result += math.log(ONE - center_count * (mapcell[MAPCELL_DIST_IDX] ** (-x)))
+        return (-ONE) * result
 
+    # optimize alpha
     res = optimize.minimize_scalar(f, bounds=(0, 5), method="bounded")
-    # res.x would be our alpha
+
+    #delete temp variables
     del i_indices
     del j_indices
     del map
+
+    # res.x would be our alpha
     return (center_count, res.x)
+
+# optimize parameters by first clustring events for each center
+# and then optimizing the parameters based on those events
+def optimize_params_by_clustring_events_repeatedly(result):
+    # for storing which events are related to each result
+    result_events = [[ONE] * len(events) for _ in range(len(results))]
+    # for storing parameters C and alpha
+    result_params = [(ZERO, ZERO)] * len(results)
+    # for storing previous parameters and compare them with new parameters in each round
+    previous_result_params = [(ZERO, ZERO)] * len(results)
+
+    # loop maximum of MAX_OPTIMIZATION_LOOP rounds
+    loop = ZERO
+    while loop < MAX_OPTIMIZATION_LOOP:
+        # do it for each single center
+        for ri in range(ZERO, len(results)):
+            # get list of events that current result has the maximum probability for them
+            related_events = []
+            for ei in range(ZERO, len(events)):
+                if result_events[ri][ei] == ONE:
+                    related_events.append(events[ei])
+
+            # find the optimum parameters for related events
+            result_params[ri] = find_optimum_params(results[ri], related_events)
+
+        # check if we have any change in parameters of any center
+        changed = False
+        for ri in range(ZERO, len(results)):
+            if previous_result_params[ri][PARAM_CENTER_IDX] != \
+                    result_params[ri][PARAM_CENTER_IDX] or \
+                    previous_result_params[ri][PARAM_ALPHA_IDX] != \
+                    result_params[ri][PARAM_ALPHA_IDX]:
+                changed = True
+
+        if changed == False:
+            break  # if there is no change, end of optimization
+        else:
+            # if there is some change, update value of previous parameteres for next round
+            for ri in range(ZERO, len(results)):
+                previous_result_params[ri] = result_params[ri]
+
+        # update events probability for updated result parameters
+        for ei in range(ZERO, len(events)):  # for each event
+            max_prob = ZERO  # store maximum probability
+            max_index = ZERO  # store index of result with maximum probability
+            # calculate the probability for each result and find the max
+            for ri in range(ZERO, len(results)):
+                # prepare params involved in prob calculation
+                C = result_params[ri][PARAM_CENTER_IDX]
+                alpha = result_params[ri][PARAM_ALPHA_IDX]
+                cell = results[ri][CELL_IDX]
+                center_x = (cell[X_STR_IDX] + cell[X_END_IDX]) / HALF
+                center_y = (cell[Y_STR_IDX] + cell[Y_END_IDX]) / HALF
+                dist = distance(events[ei][LAT_IDX], events[ei][LON_IDX], center_y, center_x)
+
+                # calculate the prob
+                prob = C * (dist ** (-alpha))
+
+                # check if we found a more suitable center for this event
+                if prob > max_prob:
+                    max_prob = prob
+                    max_index = ri
+
+                # set all to ZERO
+                result_events[ri][ei] = ZERO
+            # set the event for related center to one
+            result_events[max_index][ei] = ONE
+
+        # increment loops
+        loop += ONE
+    return result_params
 
 ################################################################################
 ################################# PARAMETERS ###################################
@@ -368,6 +446,7 @@ def find_optimum_params(cell_count, related_events):
 TF_THR = 6 # threshold for tweet frequency
 SIZE_THR = 0.8 # threshold for area size of interest
 COMPRESS_BOUNDARIES_ACTIVE = False
+MAX_OPTIMIZATION_LOOP = 100
 events_cvs_file = 'CMPUT_692\map.csv'
 
 
@@ -428,6 +507,9 @@ MAPCELL_CELL_IDX = 0
 MAPCELL_COUNT_IDX = 1
 MAPCELL_DIST_IDX = 2
 
+PARAM_CENTER_IDX = 0
+PARAM_ALPHA_IDX = 1
+
 ################################################################################
 ################################### RUN ########################################
 ################################################################################
@@ -439,72 +521,14 @@ print('')
 
 events = read_events()
 results = remove_conflicts(compress_boundaries(find_centers()))
+result_params = optimize_params_by_clustring_events_repeatedly(results)
+
+# pritn some headlines
 print('')
 print('There are ' + str(len(results)) + ' centers - Calculating optimum parameters for each one:')
 print('Center template is ((min x, max x, length, min y, max y, width, type), count)')
-
-# for storing which events are related to each result
-result_events = [[1]*len(events) for _ in range(len(results))]
-# for storing parameters C and alpha
-result_params = [(0,0)]*len(results)
-# for storing previous parameters and compare them with new parameters in each round
-previous_result_params = [(0,0)]*len(results)
-
-# loop maximum of 100 rounds
-loop = 0
-while loop < 100:
-    # do it for each single center
-    for ri in range(0, len(results)):
-        # get list of events that current result has the maximum probability for them
-        related_events = []
-        for ei in range(0, len(events)):
-            if result_events[ri][ei] == 1:
-                related_events.append(events[ei])
-
-        # find the optimum parameters for related events
-        result_params[ri] = find_optimum_params(results[ri], related_events)
-
-    # check if we have any change in parameters of any center
-    changed = False
-    for ri in range(0, len(results)):
-        if previous_result_params[ri][0] != result_params[ri][0] or \
-            previous_result_params[ri][1] != result_params[ri][1]:
-            changed = True
-
-    if changed == False:
-        break # if there is no change, end of optimization
-    else:
-        # if there is some change, update value of previous parameteres for next round
-        for ri in range(0, len(results)):
-            previous_result_params[ri] = result_params[ri]
-
-    # update events probability for updated result parameters
-    for ei in range(0, len(events)):# for each event
-        max_prob = 0# store maximum probability
-        max_index = 0# store index of result with maximum probability
-        # calculate the probability for each result and find the max
-        for ri in range(0, len(results)):
-            C = result_params[ri][0]
-            alpha = result_params[ri][1]
-            cell = results[ri][CELL_IDX]
-            center_x = (cell[X_STR_IDX] + cell[X_END_IDX]) / HALF
-            center_y = (cell[Y_STR_IDX] + cell[Y_END_IDX]) / HALF
-            dist = distance(events[ei][LAT_IDX], events[ei][LON_IDX], center_y, center_x)
-            prob = C * (dist ** (-alpha))
-            if prob > max_prob:
-                max_prob = prob
-                max_index = ri
-            # set all to 0
-            result_events[ri][ei] = 0
-        # set the event for related center to one
-        result_events[max_index][ei] = 1
-
-    #print('----------------middle results--------------')
-    #for result_param in result_params:
-    #    print(result_param)
-    loop += 1
-
+print('')
 # print all centers and parameters
-for ri in range(0, len(results)):
+for ri in range(ZERO, len(results)):
     print('Center: ' + str(our_to_real_space_result(results[ri])))
     print('(C,alpha): ' + str(result_params[ri]))
