@@ -29,12 +29,12 @@ def our_to_real_space_result(our_result):
             our_cell[TYPE_IDX]), our_result[COUNT_IDX])
 
 # count number of events falls inside the input cell + min/max boundaries
-def count_events_minmax(cell):
+def count_events_minmax(cell, related_events):
     #TODO: make it more efficient number of events
     # falling inside this specific cell
     min_max = [dx0,x0,ZERO,dy0,y0,ZERO]
     res = ZERO
-    for event in events: # loop over all the events
+    for event in related_events: # loop over all the events
         lat = event[LAT_IDX]
         lon = event[LON_IDX]
         # check if event falls inside the cell
@@ -68,10 +68,10 @@ def count_events_minmax(cell):
     return res, min_max
 
 # count number of events falls inside the input cell
-def count_events(cell):
+def count_events(cell, related_events):
     #TODO: make it more efficient
     res = ZERO
-    for event in events: # loop over all the events
+    for event in related_events: # loop over all the events
         lat = event[LAT_IDX]
         lon = event[LON_IDX]
         # check if event falls inside the cell
@@ -139,7 +139,7 @@ def find_centers():
                             popCell[Y_LEN] / HALF,
                             type)
                     # count number of events inside this cell
-                    count, min_max = count_events_minmax(cell)
+                    count, min_max = count_events_minmax(cell, events)
                     # if count meets the threshold, add the cell to queue
                     if count >= TF_THR:
                         bfsq.put((cell, count, min_max))
@@ -159,7 +159,7 @@ def find_centers():
                         popCell[Y_LEN] / HALF,
                         CELL_TYPE_2)
                 # count number of events inside this cell
-                count, min_max = count_events_minmax(cell)
+                count, min_max = count_events_minmax(cell, events)
                 # if count meets the threshold, add the cell to queue
                 if count >= TF_THR:
                     bfsq.put((cell, count, min_max))
@@ -179,7 +179,7 @@ def find_centers():
                         popCell[Y_LEN] / HALF,
                         CELL_TYPE_3)
                 # count number of events inside this cell
-                count, min_max = count_events_minmax(cell)
+                count, min_max = count_events_minmax(cell, events)
                 # if count meets the threshold, add the cell to queue
                 if count >= TF_THR:
                     bfsq.put((cell, count, min_max))
@@ -198,7 +198,7 @@ def find_centers():
                     popCell[Y_LEN] / HALF,
                     CELL_TYPE_4)
             # count number of events inside this cell
-            count, min_max = count_events_minmax(cell)
+            count, min_max = count_events_minmax(cell, events)
             # if count meets the threshold, add the cell to queue
             if count >= TF_THR:
                 bfsq.put((cell, count, min_max))
@@ -288,7 +288,7 @@ def distance(lat1,lon1,lat2,lon2):
     return great_circle(our_to_real_space_point((lat1, lon1)), our_to_real_space_point((lat2, lon2))).kilometers
 
 # find optimum values for alpha based on spatial variation paper
-def find_optimum_params(cell_count):
+def find_optimum_params(cell_count, related_events):
     center_cell = cell_count[CELL_IDX]
     center_count = cell_count[COUNT_IDX]
 
@@ -339,7 +339,7 @@ def find_optimum_params(cell_count):
         for j in j_indices:
             new_cell = (i[MAP_STR], i[MAP_END], i[MAP_END] - i[MAP_STR],
                         j[MAP_STR], j[MAP_END], j[MAP_END] - j[MAP_STR])
-            new_count = count_events(new_cell)
+            new_count = count_events(new_cell, related_events)
             new_center_x = (i[MAP_STR] + i[MAP_END]) / HALF
             new_center_y = (j[MAP_STR] + j[MAP_END]) / HALF
             new_dist = distance(new_center_y, new_center_x, cell_center_y, cell_center_x)
@@ -442,6 +442,69 @@ results = remove_conflicts(compress_boundaries(find_centers()))
 print('')
 print('There are ' + str(len(results)) + ' centers - Calculating optimum parameters for each one:')
 print('Center template is ((min x, max x, length, min y, max y, width, type), count)')
-for result in results:
-    print('Center: ' + str(our_to_real_space_result(result)))
-    print('(C, Alpha) = ' + str(find_optimum_params(result)))
+
+# for storing which events are related to each result
+result_events = [[1]*len(events) for _ in range(len(results))]
+# for storing parameters C and alpha
+result_params = [(0,0)]*len(results)
+# for storing previous parameters and compare them with new parameters in each round
+previous_result_params = [(0,0)]*len(results)
+
+# loop maximum of 100 rounds
+loop = 0
+while loop < 100:
+    # do it for each single center
+    for ri in range(0, len(results)):
+        # get list of events that current result has the maximum probability for them
+        related_events = []
+        for ei in range(0, len(events)):
+            if result_events[ri][ei] == 1:
+                related_events.append(events[ei])
+
+        # find the optimum parameters for related events
+        result_params[ri] = find_optimum_params(results[ri], related_events)
+
+    # check if we have any change in parameters of any center
+    changed = False
+    for ri in range(0, len(results)):
+        if previous_result_params[ri][0] != result_params[ri][0] or \
+            previous_result_params[ri][1] != result_params[ri][1]:
+            changed = True
+
+    if changed == False:
+        break # if there is no change, end of optimization
+    else:
+        # if there is some change, update value of previous parameteres for next round
+        for ri in range(0, len(results)):
+            previous_result_params[ri] = result_params[ri]
+
+    # update events probability for updated result parameters
+    for ei in range(0, len(events)):# for each event
+        max_prob = 0# store maximum probability
+        max_index = 0# store index of result with maximum probability
+        # calculate the probability for each result and find the max
+        for ri in range(0, len(results)):
+            C = result_params[ri][0]
+            alpha = result_params[ri][1]
+            cell = results[ri][CELL_IDX]
+            center_x = (cell[X_STR_IDX] + cell[X_END_IDX]) / HALF
+            center_y = (cell[Y_STR_IDX] + cell[Y_END_IDX]) / HALF
+            dist = distance(events[ei][LAT_IDX], events[ei][LON_IDX], center_y, center_x)
+            prob = C * (dist ** (-alpha))
+            if prob > max_prob:
+                max_prob = prob
+                max_index = ri
+            # set all to 0
+            result_events[ri][ei] = 0
+        # set the event for related center to one
+        result_events[max_index][ei] = 1
+
+    #print('----------------middle results--------------')
+    #for result_param in result_params:
+    #    print(result_param)
+    loop += 1
+
+# print all centers and parameters
+for ri in range(0, len(results)):
+    print('Center: ' + str(our_to_real_space_result(results[ri])))
+    print('(C,alpha): ' + str(result_params[ri]))
