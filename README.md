@@ -14,3 +14,7 @@ This folder contains our SyntheticDataGenerator algorithm which tries to generta
 
 ## BSC
 This folder contains implementation of Single-Center case of Backstrom's algorithm plus a SyntheticDataGenerator which generates a dataset to show weakness of Backstrom's work
+
+### Contributors
+Hamed Mirzaei<br/>
+Sarah Davis
