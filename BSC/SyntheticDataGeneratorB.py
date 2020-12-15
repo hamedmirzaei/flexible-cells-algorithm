@@ -26,6 +26,7 @@ def generate():
     centers = []
     center_cells = {}
     count = ONE
+    is_b = False
     while count <= NUMBER_OF_CENTERS + ONE:
         lat_index = round(random.random() * (len(lat_train) - ONE))
         lon_index = round(random.random() * (len(lon_train) - ONE))
@@ -33,14 +34,12 @@ def generate():
         if not center_cells.get(key):
             center_lat = round((lat_train[lat_index][STR_IDX] + lat_train[lat_index][END_IDX]) / TWO, TWO)
             center_lon = round((lon_train[lon_index][STR_IDX] + lon_train[lon_index][END_IDX]) / TWO, TWO)
-            if count == ONE:
-                is_b = False
-            else:
-                is_b = True
             center_cells[key] = (lat_train[lat_index], lon_train[lon_index], is_b)
             centers.append((center_lat, center_lon, is_b))
             print('Center ' + str(count) + ': ' + str((center_lat, center_lon, is_b)))
             count += ONE
+            if not is_b:
+                is_b = True
 
     # create events for each center randomly inside it
     events = []
@@ -53,20 +52,20 @@ def generate():
             rand_lon = random.random() * int(LARGE_CELL_SIZE / TWO) + lon_start
             for i in range(math.floor(B_CENTER_FREQUENCY/TWO)):
                 events.append((rand_lat, rand_lon))
-            for i in range(B_CENTER_FREQUENCY - math.floor(B_CENTER_FREQUENCY/TWO)):
+            for i in range(math.floor(B_CENTER_FREQUENCY/TWO)):
                 rand_lat = random.random() * int(LARGE_CELL_SIZE / TWO) + lat_start
                 rand_lon = random.random() * int(LARGE_CELL_SIZE / TWO) + lon_start
                 events.append((rand_lat, rand_lon))
-            continue
-        for i in range(math.floor(MIN_CENTER_FREQUENCY/FOUR)):
-            rand_lat = random.random() * SMALL_CELL_SIZE + lat_start + \
-                       (int(LARGE_CELL_SIZE/SMALL_CELL_SIZE) - ONE) * SMALL_CELL_SIZE
-            rand_lon = random.random() * SMALL_CELL_SIZE + lon_start
-            events.append((rand_lat, rand_lon))
-        for i in range(MIN_CENTER_FREQUENCY):
-            rand_lat = random.random() * LARGE_CELL_SIZE + lat_start
-            rand_lon = random.random() * LARGE_CELL_SIZE + lon_start
-            events.append((rand_lat, rand_lon))
+        else:
+            for i in range(math.floor(MIN_CENTER_FREQUENCY/FOUR)):
+                rand_lat = random.random() * SMALL_CELL_SIZE + lat_start + \
+                           (int(LARGE_CELL_SIZE/SMALL_CELL_SIZE) - ONE) * SMALL_CELL_SIZE
+                rand_lon = random.random() * SMALL_CELL_SIZE + lon_start
+                events.append((rand_lat, rand_lon))
+            for i in range(math.floor(THREE*MIN_CENTER_FREQUENCY/FOUR)):
+                rand_lat = random.random() * LARGE_CELL_SIZE + lat_start
+                rand_lon = random.random() * LARGE_CELL_SIZE + lon_start
+                events.append((rand_lat, rand_lon))
 
     # create remaining events randomly through all the map
     for i in range(NUMBER_OF_EVENTS - NUMBER_OF_CENTERS * MIN_CENTER_FREQUENCY - B_CENTER_FREQUENCY):
@@ -87,6 +86,7 @@ END_LON = +180
 ZERO = 0
 ONE = 1
 TWO = 2
+THREE = 3
 FOUR = 4
 
 LAT_IDX = 0
